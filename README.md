@@ -3,6 +3,8 @@ Firemonkey's Quest is point and click demo game showing various features of the 
 
 ![Alt text](g3d_firemonkeys_quest_med.png?raw=true "FiremonkeysQuest")
 
+__NOTICE:__ The game was developed with a NVIDIA GeForce 720 GT (2014). Screenshots and videos material is very limited due to bad performance.
+
 + Realtime global illumination (not recommended for elder GPUs)
 + Pathfinding AStar by click detection incl. obstacles (dynamic / static)
 + Dialogues + HeadUpDisplay (a fixed one) and automatic audio playback
