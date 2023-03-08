@@ -1,5 +1,8 @@
 # FiremonkeysQuest
 Firemonkey's Quest is point and click demo game showing various features of the Gorilla3D framework.
+
+![Alt text](g3d_firemonkeys_quest_med.png?raw=true "FiremonkeysQuest")
+
 + Realtime global illumination (not recommended for elder GPUs)
 + Pathfinding AStar by click detection incl. obstacles (dynamic / static)
 + Dialogues + HeadUpDisplay (a fixed one) and automatic audio playback
