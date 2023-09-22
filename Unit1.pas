@@ -20,7 +20,14 @@ uses
   Gorilla.Audio.FMOD, Gorilla.Audio.FMOD.Intf.Channel, Gorilla.Audio.FMOD.Intf.Sound,
   Gorilla.Audio.FMOD.Intf.ChannelGroup, Gorilla.Audio.FMOD.Intf.SoundGroup;
 
+/// <summary>
+/// After v1.0.0.2573 the dialogue HUD was fixed. Before that version, we need
+/// workaround.
+/// </summary>
+{$DEFINE FIX_DIALOGUE_HUD}
+
 type
+{$IFDEF FIX_DIALOGUE_HUD}
   /// <summary>
   /// Nothing is perfect, so aren't we!
   /// There are various issues with the dialogue HUD in v1.0.0.2573
@@ -64,6 +71,9 @@ type
       procedure RestoreDialogueSystemEvents(ASystem : TGorillaDialogueSystem);
       procedure SetDialogue(const AValue : TGorillaDialogue); override;
   end;
+{$ELSE}
+  TFixedDialogueHUD = class(TGorillaDialogueHUD);
+{$ENDIF}
 
   TForm1 = class(TForm)
     GorillaViewport1: TGorillaViewport;
@@ -196,6 +206,7 @@ const
   CLICK_DISTANCE = 2;
   TOOLTIP_DISTANCE = 2;
 
+{$IFDEF FIX_DIALOGUE_HUD}
 { TFixedDialogueHUD }
 
 procedure TFixedDialogueHUD.DoExecuteEvent(const AEvent : TGorillaDialogueItemEvent;
@@ -469,6 +480,7 @@ begin
 
   inherited;
 end;
+{$ENDIF}
 
 
 
