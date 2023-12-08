@@ -1047,11 +1047,14 @@ procedure TForm1.GorillaViewport1MouseMove(Sender: TObject; Shift: TShiftState;
   X, Y: Single);
 var LScreenPos : TPoint3D;
     LRayPos    : TPoint3D;
+    LMousePos  : TPointF;
 begin
   HideToolTip();
 
   // Get 3D coordinates from screen coordinates
-  LScreenPos := GorillaViewport1.ScreenToWorld(PointF(X, Y));
+  LMousePos := PointF(X, Y);
+  LScreenPos := GorillaViewport1.ScreenToWorld(LMousePos);
+
   // Get the current camera position as start for raycasting
   LRayPos := GorillaCamera1.AbsolutePosition;
 
@@ -1062,13 +1065,15 @@ end;
 procedure TForm1.GorillaViewport1MouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Single);
 var LRayPos,
-    LRayDir : TPoint3D;
+    LRayDir : TVector3D;
     LHitPos,
     LNormal,
     LScreenPos : TPoint3D;
+    LClickPos  : TPointF;
 begin
   // 1) Get 3D position of click, by converting screen coordinates into 3D coordinates
-  LScreenPos := GorillaViewport1.ScreenToWorld(PointF(X, Y));
+  LClickPos := PointF(X, Y);
+  LScreenPos := GorillaViewport1.ScreenToWorld(LClickPos);
 
   // 2) Cast a ray from camera to the clicking position, to retrieve the real
   //    3D destination coordinate
@@ -1082,9 +1087,14 @@ begin
   else
   begin
     // No click, start pathfinding navigation
+    LClickPos := GorillaViewport1.ScreenToLocal(LClickPos);
+
     LRayDir := (LScreenPos - LRayPos).Normalize();
     if GorillaPlane1.RayCastIntersect(LRayPos, LRayDir, LHitPos, LNormal) then
     begin
+      // Bugfix: We need to flip z-axis projection for correct 2D-pathfinding coordinate translation
+      LHitPos := LHitPos * TMatrix3D.CreateScaling(Point3D(1, 1, -1));
+
       // If raycasting was successfull - we can start updating the path
       FDestPoint := LHitPos;
       FDestPoint.Y := 0;
