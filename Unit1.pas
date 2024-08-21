@@ -24,7 +24,8 @@ uses
 /// After v1.0.0.2573 the dialogue HUD was fixed. Before that version, we need
 /// workaround.
 /// </summary>
-{$DEFINE FIX_DIALOGUE_HUD}
+{ $DEFINE FIX_DIALOGUE_HUD}
+{ $DEFINE VER_1_0_0_2573}
 
 type
 {$IFDEF FIX_DIALOGUE_HUD}
@@ -72,7 +73,10 @@ type
       procedure SetDialogue(const AValue : TGorillaDialogue); override;
   end;
 {$ELSE}
-  TFixedDialogueHUD = class(TGorillaDialogueHUD);
+  TFixedDialogueHUD = class(TGorillaDialogueHUD)
+    procedure StopEvent(const AEvent : TGorillaDialogueItemEvent;
+      const AScope : TObject); override;
+  end;
 {$ENDIF}
 
   TForm1 = class(TForm)
@@ -162,15 +166,16 @@ type
     procedure ShowToolTip(AText : String; X, Y: Single);
     procedure HideToolTip();
 
-    function PerformGameObjectToolTip(AObj : TControl3D; AGlobalBounds : Boolean;
-      AScreenPos : TPoint3D; ARayStart : TPoint3D; X, Y : Single) : Boolean;
+    function PerformGameObjectToolTip(AObj : TControl3D; AIdx : Integer;
+      AGlobalBounds : Boolean; AScreenPos : TPoint3D; ARayStart : TPoint3D;
+      X, Y : Single) : Boolean;
     function PerformGameObjectToolTips(AScreenPos : TPoint3D; ARayStart : TPoint3D;
       X, Y : Single) : Boolean;
 
     // Inventory collection on click
-    function PerformGameObjectClick(AObj : TControl3D; AGlobalBounds : Boolean;
-      AScreenPos : TPoint3D; ARayStart : TPoint3D; X, Y : Single;
-      AAction : TAction) : Boolean;
+    function PerformGameObjectClick(AObj : TControl3D; AIdx : Integer;
+      AGlobalBounds : Boolean; AScreenPos : TPoint3D; ARayStart : TPoint3D;
+      X, Y : Single; AAction : TAction) : Boolean;
     function PerformGameObjectClicks(AScreenPos : TPoint3D; ARayStart : TPoint3D;
       X, Y : Single) : Boolean;
 
@@ -182,6 +187,11 @@ type
     procedure UpdatePathfinding();
     procedure ShowSacredCoconut();
   end;
+
+const
+  // Banana, CoconutTree, Coconut
+  GAMEOBJECT_TOOLTIP_DISTANCES : Array[0..2] of Single = (2, 5, 3);
+  GAMEOBJECT_CLICK_DISTANCES : Array[0..2] of Single = (2, 5, 3);
 
 var
   Form1: TForm1;
@@ -197,14 +207,11 @@ uses
 
 const
   // Constants for the grid cells: 256 x 256 cells
-  PATHFINDING_GRID_X   = 256;
-  PATHFINDING_GRID_Z   = 256;
+  PATHFINDING_GRID_X   = 512;
+  PATHFINDING_GRID_Z   = 512;
   // We expect the scene to have a maximum size of 128 3D-units
   PATHFINDING_3DSIZE_X = 128;
   PATHFINDING_3DSIZE_Z = 128;
-
-  CLICK_DISTANCE = 2;
-  TOOLTIP_DISTANCE = 2;
 
 {$IFDEF FIX_DIALOGUE_HUD}
 { TFixedDialogueHUD }
@@ -480,6 +487,74 @@ begin
 
   inherited;
 end;
+{$ELSE}
+procedure TFixedDialogueHUD.StopEvent(const AEvent : TGorillaDialogueItemEvent;
+  const AScope : TObject);
+var LParamVal : TValue;
+    LAudioMng : TGorillaFMODAudioManager;
+    LChannel  : IInterface {IGorillaFMODChannel};
+    LChIntf   : IGorillaFMODChannel;
+    LChIdx    : Integer;
+    LSoundItm : TGorillaFMODSoundItem;
+    I         : Integer;
+begin
+  // NOTICE: This is a bugfix for v1.1.2.3094
+  // Multiple playback on the same sound items (started by the dialogue system)
+  // crashes, because the channel reference was stopped, but the channel reference
+  // inside of the sound-item got invalid by this. This is causing exceptions
+  // on working with a deprecated handle.
+  case AEvent.Kind of
+    Text: ;
+    Image: ;
+    Audio:
+      begin
+        if not Assigned(FAudioManager) then
+          Exit;
+
+        LAudioMng := FAudioManager as TGorillaFMODAudioManager;
+        if AEvent.Parameters.TryGetValue('id', LParamVal) then
+        begin
+          if (not LParamVal.IsEmpty) and not TryStrToInt(LParamVal.ToString, LChIdx) then
+            LChIdx := -1;
+
+          // At first we have to stop the channel by the sounditem
+          // Otherwise a deprecated reference of the channel remains inside of
+          // the sounditem
+          // Therefore let's scan the sound items for this linked channel
+          if FAudioChannels.TryGetValue(LChIdx, LChannel) then
+          begin
+            if Assigned(LChannel) then
+            begin
+              LChIntf := LChannel as IGorillaFMODChannel;
+
+              for I := 0 to LAudioMng.Sounds.Count - 1 do
+              begin
+                LSoundItm := LAudioMng.Sounds.Items[I] as TGorillaFMODSoundItem;
+                if Assigned(LSoundItm) and (LSoundItm.Channel = LChIntf) then
+                  LSoundItm.Stop();
+              end;
+
+              FAudioChannels.AddOrSetValue(LChIdx, nil);
+            end;
+          end;
+
+          // For dirty hackers, added sounds and channels manually, we clean them
+          // up afterwards.
+          if FAudioChannels.TryGetValue(LChIdx, LChannel) then
+          begin
+            if Assigned(LChannel) then
+            begin
+              LAudioMng.Stop(LChannel as IGorillaFMODChannel);
+              FAudioChannels.AddOrSetValue(LChIdx, nil);
+            end;
+          end;
+        end;
+      end;
+
+    else
+      inherited;
+  end;
+end;
 {$ENDIF}
 
 
@@ -506,6 +581,12 @@ begin
   Landscape.Meshes[8].SetOpacityValue(0.997);
   Landscape.Meshes[9].SetOpacityValue(0.997);
 
+  // Disable hittesting for a better click result
+  Landscape.Meshes[6].SetHitTestValue(false);
+  Landscape.Meshes[7].SetHitTestValue(false);
+  Landscape.Meshes[8].SetHitTestValue(false);
+  Landscape.Meshes[9].SetHitTestValue(false);
+
   // By default, let's hide the tool tip rectangle
   HideToolTip();
 
@@ -531,8 +612,8 @@ begin
 
   // Activate global illumination (only on modern machines)
   GorillaViewport1.GlobalIllumDetail := 3;
-  GorillaViewport1.GlobalIllumSoftness := 3;
-  GorillaViewport1.ShadowStrength := 0.75;
+  GorillaViewport1.GlobalIllumSoftness := 5;
+  GorillaViewport1.ShadowStrength := 0.85;
 
   // Gimmick #1: We want the diamond to glow
   TGorillaDefaultMaterialSource(Landscape.Meshes[0].MaterialSource).EmissiveF :=
@@ -602,7 +683,7 @@ begin
     'void SurfaceShader(inout TLocals DATA){'#13#10 +
     '  float l_Dist = distance(_EyePos.xyz, DATA.TransfVertPos.xyz);'#13#10 +
     '  l_Dist = abs(l_Dist);'#13#10 +
-    '  DATA.Alpha = min((l_Dist / 10.0) * 0.5, 1.0);'#13#10 +
+    '  DATA.Alpha = clamp(log(l_Dist / 4.0), 0.0, 1.0);'#13#10 +
     '  DATA.BaseColor.a = DATA.Alpha;'#13#10 +
     '}'#13#10;
 
@@ -880,13 +961,14 @@ begin
   ToolTipRect.Visible := false;
 end;
 
-function TForm1.PerformGameObjectToolTip(AObj : TControl3D; AGlobalBounds : Boolean;
+function TForm1.PerformGameObjectToolTip(AObj : TControl3D; AIdx : Integer; AGlobalBounds : Boolean;
   AScreenPos : TPoint3D; ARayStart : TPoint3D; X, Y : Single) : Boolean;
 var LRayDir : TPoint3D;
     LHitPosFar,
     LHitPos : TPoint3D;
     LHit    : Boolean;
     LBBox   : TBoundingBox;
+    LDist1, LDist2 : Single;
 begin
   if not AObj.Visible then
     Exit(false);
@@ -896,8 +978,12 @@ begin
   begin
     // For model gameobjects is much faster to do a bounding box intersection
     // test than a triangle test!
+  {$IFDEF VER_1_0_0_2573}
     if AGlobalBounds then LBBox := AObj.GlobalBounds
                      else LBBox := TGorillaModel(AObj).GetAbsoluteBoundingBox();
+  {$ELSE}
+    LBBox := TGorillaModel(AObj).GetAbsoluteBoundingBox();
+  {$ENDIF}
     LHit := FMX.Types3D.RayCastCuboidIntersect(ARayStart, LRayDir, LBBox.CenterPoint,
       LBBox.Width, LBBox.Height, LBBox.Depth, LHitPos, LHitPosFar) > 0;
   end
@@ -905,8 +991,17 @@ begin
 
   if LHit then
   begin
+    LDist1 := LHitPos.Distance(MonkeyNavigator.AbsolutePosition);
+    if (AIdx <= High(GAMEOBJECT_TOOLTIP_DISTANCES)) then
+      LDist2 := GAMEOBJECT_TOOLTIP_DISTANCES[AIdx]
+    else
+      LDist2 := 3;
+
+//    Log.d('tool-tip: %s [%s] (%n < %n)', [AObj.Name, String(AObj.ClassName),
+//      LDist1, LDist2]);
+
     // only show tooltip when you're nearby
-    if LHitPos.Distance(MonkeyNavigator.AbsolutePosition) < TOOLTIP_DISTANCE then
+    if LDist1 < LDist2 then
     begin
       ShowToolTip(AObj.TagString, X, Y);
       Result := true;
@@ -921,34 +1016,35 @@ function TForm1.PerformGameObjectToolTips(AScreenPos : TPoint3D; ARayStart : TPo
   X, Y : Single) : Boolean;
 begin
   // Banana
-  Result := PerformGameObjectToolTip(Banana, false, AScreenPos, ARayStart,
+  Result := PerformGameObjectToolTip(Banana, 0, false, AScreenPos, ARayStart,
     X, Y);
 
   if Result then
     Exit;
 
   // Coconut Tree
-  Result := PerformGameObjectToolTip(CoconutTree, true, AScreenPos, ARayStart,
+  Result := PerformGameObjectToolTip(CoconutTree, 1, true, AScreenPos, ARayStart,
     X, Y);
 
   if Result then
     Exit;
 
   // Coconut
-  Result := PerformGameObjectToolTip(Coconut, false, AScreenPos, ARayStart,
+  Result := PerformGameObjectToolTip(Coconut, 2, false, AScreenPos, ARayStart,
     X, Y);
 
   if Result then
     Exit;
 end;
 
-function TForm1.PerformGameObjectClick(AObj : TControl3D; AGlobalBounds : Boolean;
-  AScreenPos : TPoint3D; ARayStart : TPoint3D; X, Y : Single;
-  AAction : TAction) : Boolean;
+function TForm1.PerformGameObjectClick(AObj : TControl3D; AIdx : Integer;
+  AGlobalBounds : Boolean; AScreenPos : TPoint3D; ARayStart : TPoint3D;
+  X, Y : Single; AAction : TAction) : Boolean;
 var LRayDir : TPoint3D;
     LHitPosFar,
     LHitPos : TPoint3D;
     LBBox   : TBoundingBox;
+    LDist1, LDist2 : Single;
 begin
   if not AObj.Visible then
     Exit(false);
@@ -958,8 +1054,12 @@ begin
   begin
     // For model gameobjects is much faster to do a bounding box intersection
     // test than a triangle test!
+  {$IFDEF VER_1_0_0_2573}
     if AGlobalBounds then LBBox := AObj.GlobalBounds
                      else LBBox := TGorillaModel(AObj).GetAbsoluteBoundingBox();
+  {$ELSE}
+    LBBox := TGorillaModel(AObj).GetAbsoluteBoundingBox();
+  {$ENDIF}
     Result := FMX.Types3D.RayCastCuboidIntersect(ARayStart, LRayDir, LBBox.CenterPoint,
       LBBox.Width, LBBox.Height, LBBox.Depth, LHitPos, LHitPosFar) > 0;
   end
@@ -968,7 +1068,13 @@ begin
   if Result then
   begin
     // Is it close enough
-    if LHitPos.Distance(MonkeyNavigator.AbsolutePosition) <= CLICK_DISTANCE then
+    LDist1 := LHitPos.Distance(MonkeyNavigator.AbsolutePosition);
+    if (AIdx <= High(GAMEOBJECT_CLICK_DISTANCES)) then
+      LDist2 := GAMEOBJECT_CLICk_DISTANCES[AIdx]
+    else
+      LDist2 := 3;
+
+    if LDist1 <= LDist2 then
     begin
       // Start action ...
       if Assigned(AAction) then
@@ -981,21 +1087,21 @@ function TForm1.PerformGameObjectClicks(AScreenPos : TPoint3D; ARayStart : TPoin
   X, Y : Single) : Boolean;
 begin
   // Banana
-  Result := PerformGameObjectClick(Banana, false, AScreenPos, ARayStart,
+  Result := PerformGameObjectClick(Banana, 0, false, AScreenPos, ARayStart,
     X, Y, Self.CollectBananaAction);
 
   if Result then
     Exit;
 
   // CoconutTree
-  Result := PerformGameObjectClick(CoconutTree, true, AScreenPos, ARayStart,
+  Result := PerformGameObjectClick(CoconutTree, 1, true, AScreenPos, ARayStart,
     X, Y, Self.ShakeTheTreeAction);
 
   if Result then
     Exit;
 
   // Coconut
-  Result := PerformGameObjectClick(Coconut, false, AScreenPos, ARayStart,
+  Result := PerformGameObjectClick(Coconut, 2, false, AScreenPos, ARayStart,
     X, Y, Self.CollectCoconutAction);
 
   if Result then
@@ -1068,28 +1174,29 @@ var LRayPos,
     LRayDir : TVector3D;
     LHitPos,
     LNormal,
-    LScreenPos : TPoint3D;
+    LWorldPos : TPoint3D;
     LClickPos  : TPointF;
 begin
   // 1) Get 3D position of click, by converting screen coordinates into 3D coordinates
   LClickPos := PointF(X, Y);
-  LScreenPos := GorillaViewport1.ScreenToWorld(LClickPos);
+  LWorldPos := GorillaViewport1.ScreenToWorld(LClickPos);
 
   // 2) Cast a ray from camera to the clicking position, to retrieve the real
   //    3D destination coordinate
   LRayPos := GorillaCamera1.AbsolutePosition;
 
   // 3) Check if GameObjects were clicked
-  if PerformGameObjectClicks(LScreenPos, LRayPos, X, Y) then
+  if PerformGameObjectClicks(LWorldPos, LRayPos, X, Y) then
   begin
     // A game object was clicked
   end
   else
   begin
-    // No click, start pathfinding navigation
+    // Start pathfinding navigation
+  {$IFDEF VER_1_0_0_2573}
     LClickPos := GorillaViewport1.ScreenToLocal(LClickPos);
 
-    LRayDir := (LScreenPos - LRayPos).Normalize();
+    LRayDir := (LWorldPos - LRayPos).Normalize();
     if GorillaPlane1.RayCastIntersect(LRayPos, LRayDir, LHitPos, LNormal) then
     begin
       // Bugfix: We need to flip z-axis projection for correct 2D-pathfinding coordinate translation
@@ -1100,6 +1207,12 @@ begin
       FDestPoint.Y := 0;
       UpdatePathfinding();
     end;
+  {$ELSE}
+    FDestPoint := LWorldPos;
+    FDestPoint.Y := 0;
+    Log.d('clicked = (%n, %n, %n)', [FDestPoint.X, FDestPoint.Y, FDestPoint.Z]);
+    UpdatePathfinding();
+  {$ENDIF}
   end;
 end;
 
