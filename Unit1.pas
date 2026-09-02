@@ -22,8 +22,8 @@ uses
   Gorilla.Audio.Manager, Gorilla.Material.Custom;
 
 { $DEFINE VER_1_0_0_2573}
-{$DEFINE VER_1_3_0_3815}
-{ $DEFINE VER_1_4_0_0}
+{ $DEFINE VER_1_3_0_3815}
+{$DEFINE VER_1_4_0_0}
 
 /// <summary>
 /// After v1.0.0.2573 the dialogue HUD was fixed. Before that version, we need
@@ -712,7 +712,18 @@ end;
 
 procedure TForm1.CreatePBRFiremonkey();
 begin
-    // Finally, we replace original material source (also sub-meshes)
+  // The emissive glow must not be masked by an emissive texture:
+  // GlowingMonkeyMaterial has no EmissiveTexture bitmap assigned, but the
+  // fragment shader multiplies LOCALS.Emissive with that (empty => black)
+  // sampler twice - once for EMISSIVEMAP (UseEmissiveMapping) and once for
+  // PBR_TEX_EMISSIVE (UsePBREmissiveTexture) - which cancels the glow.
+  // Order matters: drop the PBR flag first, otherwise the shader would still
+  // reference the already removed _EmissiveTexture sampler.
+//  GlowingMonkeyMaterial.UsePBREmissiveTexture := false;
+//  GlowingMonkeyMaterial.UseEmissiveMapping    := false;
+//  GlowingMonkeyMaterial.UseEmissiveColoring   := true;
+
+  // Finally, we replace original material source (also sub-meshes)
   // We DO NOT replace the texture in Monkey.Meshes[0].Meshes[1], because its
   // the eye-texture and do not need to glow
   Monkey.Meshes[0].MaterialSource := GlowingMonkeyMaterial;
